@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest an improvement to Agent Forge
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: Explain the test, agent workflow, or collector scenario this would support.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the output or CLI behavior you would like.
+    validations:
+      required: true

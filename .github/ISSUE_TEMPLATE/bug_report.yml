@@ -1,0 +1,25 @@
+name: Bug report
+description: Report a reproducible problem with Agent Forge
+title: "bug: "
+labels: [bug]
+body:
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include the command, configuration, and smallest output target that shows the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version and Rust toolchain
+      placeholder: "otel-agent-forge 0.1.0; rustc 1.85"
+    validations:
+      required: true
