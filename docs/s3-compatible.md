@@ -1,8 +1,8 @@
 # S3-compatible storage
 
-Agent Forge uses the AWS SDK default credential chain for native AWS S3. It accepts `s3://bucket/prefix` targets and an optional absolute HTTP(S) endpoint. An endpoint cannot contain credentials, a query, or a fragment. For a custom endpoint, set explicit `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; the default profile and instance credential chain is deliberately disabled to prevent sending credentials to an unexpected host.
+Squasher Signalbox uses the AWS SDK default credential chain for native AWS S3. It accepts `s3://bucket/prefix` targets and an optional absolute HTTP(S) endpoint. An endpoint cannot contain credentials, a query, or a fragment. For a custom endpoint, set explicit `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`; the default profile and instance credential chain is deliberately disabled to prevent sending credentials to an unexpected host.
 
-The endpoint path is forced to path-style addressing for MinIO and LocalStack. Each object is written with `If-None-Match: *`, so a completed or partial run cannot be silently overwritten.
+The endpoint path is forced to path-style addressing for MinIO and LocalStack. Each object is written with `If-None-Match: *`, so an existing object cannot be silently overwritten. Use a new prefix for each run; the writer does not claim or clear unrelated objects already under that prefix.
 
 Minimum permissions for a run are:
 
@@ -14,7 +14,7 @@ For local MinIO:
 ```sh
 mc mb local/fixtures
 AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
-  otel-agent-forge generate \
+  squasher-signalbox generate \
   --output s3://fixtures/agent-runs/example \
   --endpoint http://127.0.0.1:9000
 ```

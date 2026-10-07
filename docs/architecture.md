@@ -1,6 +1,6 @@
 # Architecture
 
-Agent Forge is a single binary with a small pipeline:
+Squasher Signalbox is a single binary with a small pipeline:
 
 1. **Resolve and validate.** CLI flags override a JSON config. Unknown config fields, unsafe S3 targets, invalid ranges, and credential-bearing endpoints fail before output is created.
 2. **Reserve the target.** A local target is created with `create_dir`; an S3 target is checked and written with conditional requests. Existing runs are never overwritten.
@@ -8,7 +8,7 @@ Agent Forge is a single binary with a small pipeline:
 4. **Generate and encode.** Each signal is generated from the scenario index and seed. Encoding runs in blocking tasks so CPU work does not stall the Tokio runtime.
 5. **Write and summarize.** Workers write immutable shard objects, while one progress bar tracks scenarios. The final manifest is written after all signal shards succeed.
 
-The generator does not retain all scenarios in memory. Peak scenario state is bounded by the configured in-flight shard limit (`jobs * batch_size`, capped at one million). The output order is independent of scheduling because every ID and timestamp is derived from `(seed, scenario index, lane)`.
+Squasher Signalbox does not retain all scenarios in memory. Peak scenario state is bounded by the configured in-flight shard limit (`jobs * batch_size`, capped at one million). The output order is independent of scheduling because every ID and timestamp is derived from `(seed, scenario index, lane)`.
 
 A failed run leaves its partial files in place. Retry with a new target; this prevents an interrupted run from being mistaken for a complete fixture. Ctrl-C returns exit code 130 and emits a stable `interrupted` error.
 

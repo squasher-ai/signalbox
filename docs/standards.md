@@ -1,6 +1,6 @@
 # Standards and provenance
 
-Agent Forge follows the OpenTelemetry Protocol (OTLP) export request shapes and the semantic-conventions registry. It emits the current key names from a small pinned snapshot in [`src/semconv.rs`](../src/semconv.rs), rather than inventing vendor-specific aliases.
+Squasher Signalbox follows the OpenTelemetry Protocol (OTLP) export request shapes and the semantic-conventions registry. It emits the current key names from a small pinned snapshot in [`src/semconv.rs`](../src/semconv.rs), rather than inventing vendor-specific aliases.
 
 ## Schema URLs
 
@@ -9,6 +9,16 @@ Agent Forge follows the OpenTelemetry Protocol (OTLP) export request shapes and 
 - The GenAI attribute snapshot records its upstream commit in the manifest.
 
 GenAI conventions and metrics are still development material. Consumers should tolerate additions, renames, and changes in stability. The fixture generator makes the selected versions visible so a test can pin or compare them.
+
+The manifest records two GenAI pins: the attribute snapshot commit and the
+newer metric-definition commit. They are separate because upstream metric
+names changed after the attribute snapshot was pinned. Token metrics carry
+`gen_ai.token.modality` with the value `text`.
+
+Every resource also carries the Squasher extension attributes
+`squasher.synthetic=true`, `squasher.generator.name`, and
+`squasher.generator.version`. Use them to filter generated traffic in a test
+backend without confusing it with application telemetry.
 
 ## Naming sources
 

@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve OTEL Agent Forge. Small, focused pull requests are easiest to review.
+Thanks for helping improve Squasher Signalbox. Small, focused pull requests are easiest to review.
 
 ## Before you start
 

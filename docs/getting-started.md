@@ -5,10 +5,10 @@
 Install stable Rust with [rustup](https://rustup.rs/), clone the repository, and build a release binary:
 
 ```sh
-git clone https://github.com/squasher-ai/otel-agent-forge.git
-cd otel-agent-forge
+git clone https://github.com/squasher-ai/squasher-signalbox.git
+cd squasher-signalbox
 cargo build --release
-./target/release/otel-agent-forge --help
+./target/release/squasher-signalbox --help
 ```
 
 ## Generate a fixture
@@ -16,7 +16,7 @@ cargo build --release
 Start with a small JSON fixture while checking the output shape:
 
 ```sh
-./target/release/otel-agent-forge generate \
+./target/release/squasher-signalbox generate \
   --count 25 \
   --batch-size 10 \
   --format json \
@@ -27,7 +27,21 @@ The command prints one summary JSON value on stdout. The progress bar, when enab
 
 ## Replay through a Collector
 
-Point an OpenTelemetry Collector `filelog`/file receiver or a small test harness at the generated files. Protobuf files contain `Export*ServiceRequest` messages; JSON files use OTLP JSON field names and represent 64-bit integers as decimal strings. The request type is selected by the file prefix (`traces`, `logs`, or `metrics`).
+Use a Collector with its OTLP HTTP receiver enabled on `127.0.0.1:4318`. Each JSON shard is one complete export request. Send it to the matching signal endpoint:
+
+```sh
+for signal in traces logs metrics; do
+  for file in ./fixture/"$signal"-*.otlp.json; do
+    [ -f "$file" ] || continue
+    curl --fail --show-error --silent \
+      -H 'Content-Type: application/json' \
+      --data-binary @"$file" \
+      "http://127.0.0.1:4318/v1/$signal"
+  done
+done
+```
+
+Protobuf shards contain raw `ExportTraceServiceRequest`, `ExportLogsServiceRequest`, or `ExportMetricsServiceRequest` messages. Send these to the same endpoints with `Content-Type: application/x-protobuf`. The file prefix selects the request type. The payloads have no length prefix or JSONL framing; do not treat them as arbitrary log lines.
 
 ## Reproduce a run
 

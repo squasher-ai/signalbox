@@ -16,12 +16,19 @@ pub fn integer(key: &str, value: i64) -> KeyValue {
     KeyValue { key: key.into(), value: Some(AnyValue { value: Some(Value::IntValue(value)) }) }
 }
 
+pub fn boolean(key: &str, value: bool) -> KeyValue {
+    KeyValue { key: key.into(), value: Some(AnyValue { value: Some(Value::BoolValue(value)) }) }
+}
+
 pub fn resource(config: &Config) -> Resource {
     Resource {
         attributes: vec![
             text(attr::SERVICE_NAME, &config.service_name),
             text(attr::SERVICE_VERSION, env!("CARGO_PKG_VERSION")),
             text(attr::DEPLOYMENT_ENVIRONMENT_NAME, "synthetic"),
+            boolean(attr::SQUASHER_SYNTHETIC, true),
+            text(attr::SQUASHER_GENERATOR_NAME, env!("CARGO_PKG_NAME")),
+            text(attr::SQUASHER_GENERATOR_VERSION, env!("CARGO_PKG_VERSION")),
         ],
         ..Default::default()
     }
@@ -29,7 +36,7 @@ pub fn resource(config: &Config) -> Resource {
 
 pub fn scope() -> InstrumentationScope {
     InstrumentationScope {
-        name: "otel-agent-forge".into(),
+        name: "squasher-signalbox".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         ..Default::default()
     }

@@ -34,10 +34,15 @@ pub struct Summary {
 
 pub fn plan(config: &Config) -> Value {
     json!({ "schema_version": 1, "status": "planned", "config": config,
-        "shards_per_signal": config.shards(), "counts": counts(config),
+        "shards_per_signal": config.shards(), "counts": counts_json(config),
         "max_in_flight_records": config.jobs * config.batch_size,
         "files": format!("{{signal}}-{{shard:012}}.otlp.{}", config.format.extension()),
         "semantic_conventions": conventions() })
+}
+
+fn counts_json(config: &Config) -> Value {
+    let (spans, logs, metric_points) = counts(config);
+    json!({ "spans": spans, "logs": logs, "metric_points": metric_points })
 }
 
 fn conventions() -> Value {
@@ -45,7 +50,7 @@ fn conventions() -> Value {
         "core_schema_url": crate::semconv::attributes::SEMCONV_SCHEMA_URL,
         "genai_attribute_commit": crate::semconv::attributes::GENAI_SEMCONV_COMMIT,
         "genai_schema_url": crate::semconv::attributes::GENAI_SEMCONV_SCHEMA_URL,
-        "genai_metrics_source_commit": "4f85037ef86e92c510d2ef881a58f1076f6fc0e4",
+        "genai_metrics_source_commit": crate::semconv::attributes::GENAI_METRICS_COMMIT,
         "profile": "genai-development-pinned-metrics",
         "genai_stability": "development" })
 }

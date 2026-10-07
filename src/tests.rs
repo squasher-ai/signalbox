@@ -6,7 +6,11 @@ use crate::{
 };
 use clap::Parser;
 use opentelemetry_proto::tonic::{
-    collector::{logs::v1::ExportLogsServiceRequest, trace::v1::ExportTraceServiceRequest},
+    collector::{
+        logs::v1::ExportLogsServiceRequest, metrics::v1::ExportMetricsServiceRequest,
+        trace::v1::ExportTraceServiceRequest,
+    },
+    common::v1::any_value::Value,
     metrics::v1::{AggregationTemporality, metric::Data},
 };
 use prost::Message;
@@ -54,7 +58,28 @@ async fn parallel_output_preserves_determinism_shards_and_signal_correlation() {
             std::fs::read(runs[0].join(format!("logs-{shard:012}.otlp.pb"))).unwrap().as_slice(),
         )
         .unwrap();
+        let metrics = ExportMetricsServiceRequest::decode(
+            std::fs::read(runs[0].join(format!("metrics-{shard:012}.otlp.pb"))).unwrap().as_slice(),
+        )
+        .unwrap();
         let spans = &traces.resource_spans[0].scope_spans[0].spans;
+        let resource = traces.resource_spans[0].resource.as_ref().unwrap();
+        assert_eq!(Some(resource), logs.resource_logs[0].resource.as_ref());
+        assert_eq!(Some(resource), metrics.resource_metrics[0].resource.as_ref());
+        for (key, value) in [
+            (attr::SQUASHER_SYNTHETIC, Value::BoolValue(true)),
+            (attr::SQUASHER_GENERATOR_NAME, Value::StringValue(env!("CARGO_PKG_NAME").into())),
+            (
+                attr::SQUASHER_GENERATOR_VERSION,
+                Value::StringValue(env!("CARGO_PKG_VERSION").into()),
+            ),
+        ] {
+            assert!(resource.attributes.iter().any(|attribute| {
+                attribute.key == key
+                    && attribute.value.as_ref().and_then(|value| value.value.as_ref())
+                        == Some(&value)
+            }));
+        }
         trace_count += spans.len();
         for (root, log) in
             spans.chunks_exact(4).zip(&logs.resource_logs[0].scope_logs[0].log_records)
@@ -129,6 +154,26 @@ fn generated_metrics_have_valid_buckets_delta_windows_and_current_attributes() {
                 }
                 _ => panic!("unexpected metric type"),
             }
+            if metric.unit == "{token}" {
+                let attribute_sets: Vec<_> = match metric.data.as_ref().unwrap() {
+                    Data::Histogram(histogram) => {
+                        histogram.data_points.iter().map(|point| &point.attributes).collect()
+                    }
+                    Data::Sum(sum) => {
+                        sum.data_points.iter().map(|point| &point.attributes).collect()
+                    }
+                    _ => panic!("unexpected token metric type"),
+                };
+                for attributes in attribute_sets {
+                    assert!(attributes.iter().any(|attribute| {
+                        attribute.key == attr::GEN_AI_TOKEN_MODALITY
+                            && matches!(
+                                attribute.value.as_ref().and_then(|value| value.value.as_ref()),
+                                Some(Value::StringValue(value)) if value == "text"
+                            )
+                    }));
+                }
+            }
         }
     }
 }
@@ -167,8 +212,8 @@ fn cli_config_rejects_invalid_ranges_and_unknown_fields_before_writes() {
         vec!["--endpoint", "https://user:secret@example.com", "--output", "s3://bucket/prefix"],
         vec!["--output", "s3://bucket"],
     ] {
-        let cli =
-            Cli::try_parse_from(["otel-agent-forge", "generate"].into_iter().chain(flags)).unwrap();
+        let cli = Cli::try_parse_from(["squasher-signalbox", "generate"].into_iter().chain(flags))
+            .unwrap();
         let Command::Generate(generate) = cli.command else { panic!("wrong command") };
         assert!(generate.resolve().is_err());
     }
@@ -186,4 +231,15 @@ fn schema_advertises_the_same_ranges_as_runtime_validation() {
     assert_eq!(properties["interval_ns"]["minimum"], 1_000_000_000_u64);
     assert_eq!(properties["error_rate"]["maximum"], 100);
     assert_eq!(properties["signals"]["minItems"], 1);
+}
+
+#[test]
+fn dry_run_plan_uses_named_signal_counts_for_agents() {
+    let config = Config { count: 7, preset: Preset::Rag, ..Config::default() };
+    let plan = runner::plan(&config);
+    assert_eq!(plan["status"], "planned");
+    assert_eq!(plan["counts"]["spans"], 28);
+    assert_eq!(plan["counts"]["logs"], 7);
+    assert_eq!(plan["counts"]["metric_points"], 35);
+    assert!(plan["counts"].is_object());
 }

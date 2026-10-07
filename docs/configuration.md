@@ -3,7 +3,7 @@
 Every `generate` flag can be represented in JSON. Generate the exact schema and defaults for the installed binary:
 
 ```sh
-otel-agent-forge schema > config-schema.json
+squasher-signalbox schema > config-schema.json
 ```
 
 A config file is read with `--config path.json` or from stdin with `--config -`. CLI flags override file values. Unknown fields are rejected. The main limits are:

@@ -1,4 +1,8 @@
-use std::{env, path::PathBuf};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use aws_sdk_s3::config::{
     Credentials, Region, RequestChecksumCalculation, ResponseChecksumValidation,
@@ -12,6 +16,8 @@ pub enum Sink {
     Local(PathBuf),
     S3 { client: aws_sdk_s3::Client, bucket: String, prefix: String },
 }
+
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 impl Sink {
     pub fn validate_output(output: &str) -> Result<(), Error> {
@@ -76,24 +82,7 @@ impl Sink {
         validate_name(name)?;
         match self {
             Self::Local(directory) => {
-                let mut file = tokio::fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(directory.join(name))
-                    .await
-                    .map_err(|error| {
-                        if error.kind() == std::io::ErrorKind::AlreadyExists {
-                            Error::new("output_exists", "An output file already exists.")
-                        } else {
-                            Error::new("output_write_failed", "Cannot create an output file.")
-                        }
-                    })?;
-                file.write_all(&data).await.map_err(|_| {
-                    Error::new("output_write_failed", "Cannot write an output file.")
-                })?;
-                file.flush().await.map_err(|_| {
-                    Error::new("output_write_failed", "Cannot flush an output file.")
-                })?;
+                write_local_atomically(directory, name, data).await?;
                 Ok(())
             }
             Self::S3 { client, bucket, prefix } => {
@@ -123,6 +112,63 @@ impl Sink {
             }
         }
     }
+}
+
+/// Write a local object without ever exposing a partially written destination.
+///
+/// The temporary file is created in the destination directory, written and
+/// synced before it is linked into place. A hard link gives us the
+/// create-only/no-clobber property that `rename` does not provide on all
+/// platforms. The temporary link is removed after the destination is visible.
+async fn write_local_atomically(directory: &Path, name: &str, data: Vec<u8>) -> Result<(), Error> {
+    let (temporary_path, mut file) = create_temporary_file(directory, name).await?;
+    let destination = directory.join(name);
+
+    let result = async {
+        file.write_all(&data)
+            .await
+            .map_err(|_| Error::new("output_write_failed", "Cannot write an output file."))?;
+        file.flush()
+            .await
+            .map_err(|_| Error::new("output_write_failed", "Cannot flush an output file."))?;
+        file.sync_all()
+            .await
+            .map_err(|_| Error::new("output_write_failed", "Cannot sync an output file."))?;
+        drop(file);
+
+        tokio::fs::hard_link(&temporary_path, &destination).await.map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                Error::new("output_exists", "An output file already exists.")
+            } else {
+                Error::new("output_write_failed", "Cannot create an output file.")
+            }
+        })
+    }
+    .await;
+
+    // A failed write must not leave a misleading partial artifact. Cleanup is
+    // best effort because the committed destination is already durable when
+    // the link operation succeeds.
+    let _ = tokio::fs::remove_file(&temporary_path).await;
+    result
+}
+
+async fn create_temporary_file(
+    directory: &Path,
+    name: &str,
+) -> Result<(PathBuf, tokio::fs::File), Error> {
+    for _ in 0..32 {
+        let suffix = TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = directory.join(format!(".{name}.partial-{}-{suffix}", std::process::id()));
+        match tokio::fs::OpenOptions::new().write(true).create_new(true).open(&path).await {
+            Ok(file) => return Ok((path, file)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(_) => {
+                return Err(Error::new("output_write_failed", "Cannot create an output file."));
+            }
+        }
+    }
+    Err(Error::new("output_write_failed", "Cannot allocate a temporary output file."))
 }
 
 fn endpoint_credentials_from_env() -> Result<Credentials, Error> {
@@ -155,7 +201,7 @@ fn static_endpoint_credentials(
         secret_key,
         session_token.filter(|value| !value.is_empty()).map(str::to_owned),
         None,
-        "otel-agent-forge-static-endpoint",
+        "squasher-signalbox-static-endpoint",
     ))
 }
 

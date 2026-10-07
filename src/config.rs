@@ -116,7 +116,7 @@ impl Default for Config {
             preset: Preset::Agent,
             signals: vec![Signal::Traces, Signal::Logs, Signal::Metrics],
             format: Format::Protobuf,
-            output: "otel-data".into(),
+            output: "signalbox-data".into(),
             service_name: "synthetic-agent".into(),
             start_ns: 1_759_190_400_000_000_000,
             interval_ns: 1_000_000_000,
@@ -167,7 +167,7 @@ impl Config {
             || self.service_name.chars().any(char::is_control)
         {
             return Err(invalid(
-                "service_name must contain 1..=256 bytes and no control characters",
+                "service_name must contain 1..=256 characters and no control characters",
             ));
         }
         if self.output.is_empty()

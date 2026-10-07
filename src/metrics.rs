@@ -1,6 +1,7 @@
 use crate::{
     config::{Config, Preset},
-    model::{Record, resource, schema_url, scope},
+    model::{Record, resource, schema_url, scope, text},
+    semconv::attributes as attr,
 };
 use opentelemetry_proto::tonic::{
     collector::metrics::v1::ExportMetricsServiceRequest,
@@ -19,7 +20,7 @@ pub fn generate(config: &Config, start: u64, end: u64) -> ExportMetricsServiceRe
     let mut output_hist = Vec::with_capacity((end - start) as usize);
     for index in start..end {
         let record = Record::new(config, index);
-        let attributes = if config.preset == Preset::Web {
+        let mut attributes = if config.preset == Preset::Web {
             record.root_attributes(config.preset)
         } else {
             record.inference_attributes()
@@ -36,6 +37,9 @@ pub fn generate(config: &Config, start: u64, end: u64) -> ExportMetricsServiceRe
             elapsed,
             &[0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
         ));
+        if config.preset != Preset::Web {
+            attributes.push(text(attr::GEN_AI_TOKEN_MODALITY, "text"));
+        }
         input_sum.push(number(
             &record,
             config,
