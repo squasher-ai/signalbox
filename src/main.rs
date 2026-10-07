@@ -44,29 +44,29 @@ async fn main() {
     };
     match execute(cli).await {
         Ok(Output::Json(result)) => {
-            if let Err(error) = write_stdout_json(&result) {
+            if let Err(error) = write_stdout_json(&result)
+                && error.kind() != io::ErrorKind::BrokenPipe
+            {
                 // A downstream command closing a pipeline is a normal Unix exit
                 // condition. Other stdout failures are reported on stderr.
-                if error.kind() != io::ErrorKind::BrokenPipe {
-                    write_stderr_json(&json!({
-                        "schema_version": 1,
-                        "status": "error",
-                        "error": Error::new("output_write_failed", "Cannot write JSON result to stdout")
-                    }));
-                    std::process::exit(1);
-                }
+                write_stderr_json(&json!({
+                    "schema_version": 1,
+                    "status": "error",
+                    "error": Error::new("output_write_failed", "Cannot write JSON result to stdout")
+                }));
+                std::process::exit(1);
             }
         }
         Ok(Output::Raw(bytes)) => {
-            if let Err(error) = write_stdout_bytes(&bytes) {
-                if error.kind() != io::ErrorKind::BrokenPipe {
-                    write_stderr_json(&json!({
-                        "schema_version": 1,
-                        "status": "error",
-                        "error": Error::new("output_write_failed", "Cannot write completion script to stdout")
-                    }));
-                    std::process::exit(1);
-                }
+            if let Err(error) = write_stdout_bytes(&bytes)
+                && error.kind() != io::ErrorKind::BrokenPipe
+            {
+                write_stderr_json(&json!({
+                    "schema_version": 1,
+                    "status": "error",
+                    "error": Error::new("output_write_failed", "Cannot write completion script to stdout")
+                }));
+                std::process::exit(1);
             }
         }
         Err(error) => {
