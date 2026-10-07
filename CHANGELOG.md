@@ -4,6 +4,9 @@ All notable changes to Squasher Signalbox are documented here.
 
 ## [Unreleased]
 
+- Rename the repository, crate, and CLI to `signalbox`.
+- Require Rust 1.88 to match locked AWS SDK dependencies.
+
 - Renamed the project to Squasher Signalbox and added the branded `signalbox` CLI.
 - Added shell completion generation for Bash, Elvish, Fish, PowerShell, and Zsh.
 - Added agent, RAG, and web presets with correlated traces, logs, and metrics.

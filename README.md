@@ -30,7 +30,7 @@ Signalbox is designed for test evidence, not production telemetry. It writes syn
 
 ## Install
 
-Build from source with a recent stable Rust toolchain:
+Build from source with Rust 1.88 or newer:
 
 ```sh
 cargo install --path .
