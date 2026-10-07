@@ -4,7 +4,7 @@ The CLI is designed to be called by an agent or a CI process without scraping hu
 
 ## Stream contract
 
-- **stdout:** exactly one JSON value on success (a plan for `--dry-run`, otherwise a summary). The `completions` command is the intentional exception and writes a shell script.
+- **stdout:** exactly one JSON value on normal command success (a plan for `--dry-run`, otherwise a summary). `--help`, `--version`, and `completions` are intentional discovery exceptions and write human-readable text or a shell script.
 - **stderr:** progress and a structured error on failure; disable progress with `--progress never`.
 - **exit status:** zero on success; non-zero on validation, I/O, storage, or interruption errors.
 - **error value:** `{ "schema_version": 1, "status": "error", "error": { "code": "...", "message": "..." } }`.

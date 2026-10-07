@@ -20,9 +20,9 @@ not contact S3 or an OTLP collector. Override the workload with
 an existing binary with `SIGNALBOX_BIN`.
 
 As a reference, an Apple Silicon development machine produced 260,903,727
-bytes with four workers. Five wall-clock runs were 0.41, 0.18, 0.18, 0.19,
-and 0.18 seconds; the first run includes filesystem and process warm-up. The
-generator summary reported 533,191–612,223 scenarios per second. Results vary
+bytes with four workers. Five wall-clock runs were 0.15, 0.16, 0.17, 0.17,
+and 0.17 seconds; the first run includes filesystem and process warm-up. The
+generator summary reported 589,579–667,979 scenarios per second. Results vary
 with CPU, filesystem, shard size, and concurrent workloads. Treat these
 figures as a reproducibility reference, not a product guarantee.
 

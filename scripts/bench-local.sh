@@ -5,7 +5,9 @@ set -euo pipefail
 # directory and does not contact S3 or an OTLP collector.
 count="${BENCH_COUNT:-100000}"
 batch_size="${BENCH_BATCH_SIZE:-1000}"
-jobs="${BENCH_JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '4')}"
+# Four workers gives a stable cross-machine comparison without saturating a
+# workstation. Set BENCH_JOBS to test a different concurrency level.
+jobs="${BENCH_JOBS:-4}"
 repeats="${BENCH_REPEATS:-5}"
 binary="${SIGNALBOX_BIN:-target/release/squasher-signalbox}"
 
