@@ -82,7 +82,7 @@ async fn parallel_output_preserves_determinism_shards_and_signal_correlation() {
         }
         trace_count += spans.len();
         for (root, log) in
-            spans.chunks_exact(4).zip(&logs.resource_logs[0].scope_logs[0].log_records)
+            spans.as_chunks::<4>().0.iter().zip(&logs.resource_logs[0].scope_logs[0].log_records)
         {
             assert_eq!(root[0].trace_id, log.trace_id);
             assert_eq!(root[0].span_id, log.span_id);
