@@ -1,0 +1,9 @@
+Create a polished, highly readable technical EXPLAINER infographic for Squasher Signalbox. Landscape 1536x1024. This is educational documentation, not decorative artwork. The diagram must explain real behavior through labeled boxes, clear arrows, short explanatory captions and carefully typeset exact text. Use white background, deep navy #0E0F2B headings, indigo #2B2BC4 accents, subtle lavender cards. Modern editorial design, generous spacing. Small illustrations support meaning only. No generic robot wallpaper, no neon 3D art, no invented capabilities. Render all specified labels accurately. Keep content within canvas. 
+Title: "Generate. Inspect. Test."
+Subtitle: "A CLI contract built for people, agents, and CI."
+Three numbered panels with terminal examples typeset EXACTLY (wrap lines cleanly, retain the real binary name):
+1 "Preview the plan" code "squasher-signalbox generate --dry-run --count 100" caption "JSON plan. No files or S3 requests."
+2 "Generate a fixture" code "squasher-signalbox generate --preset rag --format json --output ./run" caption "Traces, logs, metrics, and manifest.json."
+3 "Use the output" split destinations "Local Collector tests" and "Agent / CI fixtures" caption "Read the manifest and consume the OTLP files."
+Bottom streams diagram: command forks to "stderr" / "Progress bar" and "stdout" / "One JSON summary". Add storage choice badge "Local directory or s3://bucket/prefix". Add repeatability badge "Same seed + configuration = same shards". Add setup line "cargo install --path .".
+No fabricated alias named signalbox. No claim of shipped SDK API or direct collector streaming. Compact clear infographic layout with real readable commands.
