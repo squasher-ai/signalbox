@@ -11,6 +11,11 @@ homepage = "https://github.com/squasher-ai/otel-agent-forge"
 keywords = ["opentelemetry", "otel", "observability", "synthetic-data", "ai-agents"]
 categories = ["command-line-utilities", "development-tools::testing"]
 
+# Keep this crate independent when checked out as a submodule of another
+# Cargo workspace.
+[workspace]
+resolver = "2"
+
 [[bin]]
 name = "otel-agent-forge"
 path = "src/main.rs"
