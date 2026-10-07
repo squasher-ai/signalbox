@@ -1,13 +1,13 @@
 [package]
-name = "squasher-signalbox"
+name = "signalbox"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
 description = "Synthetic OpenTelemetry signals for agent and collector tests"
 readme = "README.md"
-repository = "https://github.com/squasher-ai/squasher-signalbox"
-homepage = "https://github.com/squasher-ai/squasher-signalbox"
+repository = "https://github.com/squasher-ai/signalbox"
+homepage = "https://github.com/squasher-ai/signalbox"
 keywords = ["opentelemetry", "otel", "observability", "synthetic-data", "ai-agents"]
 categories = ["command-line-utilities", "development-tools::testing"]
 
@@ -17,7 +17,7 @@ categories = ["command-line-utilities", "development-tools::testing"]
 resolver = "2"
 
 [[bin]]
-name = "squasher-signalbox"
+name = "signalbox"
 path = "src/main.rs"
 
 [dependencies]

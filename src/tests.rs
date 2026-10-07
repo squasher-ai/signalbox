@@ -212,8 +212,7 @@ fn cli_config_rejects_invalid_ranges_and_unknown_fields_before_writes() {
         vec!["--endpoint", "https://user:secret@example.com", "--output", "s3://bucket/prefix"],
         vec!["--output", "s3://bucket"],
     ] {
-        let cli = Cli::try_parse_from(["squasher-signalbox", "generate"].into_iter().chain(flags))
-            .unwrap();
+        let cli = Cli::try_parse_from(["signalbox", "generate"].into_iter().chain(flags)).unwrap();
         let Command::Generate(generate) = cli.command else { panic!("wrong command") };
         assert!(generate.resolve().is_err());
     }

@@ -201,7 +201,7 @@ fn static_endpoint_credentials(
         secret_key,
         session_token.filter(|value| !value.is_empty()).map(str::to_owned),
         None,
-        "squasher-signalbox-static-endpoint",
+        "signalbox-static-endpoint",
     ))
 }
 

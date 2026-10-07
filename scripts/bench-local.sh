@@ -9,13 +9,13 @@ batch_size="${BENCH_BATCH_SIZE:-1000}"
 # workstation. Set BENCH_JOBS to test a different concurrency level.
 jobs="${BENCH_JOBS:-4}"
 repeats="${BENCH_REPEATS:-5}"
-binary="${SIGNALBOX_BIN:-target/release/squasher-signalbox}"
+binary="${SIGNALBOX_BIN:-target/release/signalbox}"
 
 if [[ ! -x "$binary" ]]; then
   cargo build --release --locked
 fi
 
-work="$(mktemp -d "${TMPDIR:-/tmp}/squasher-signalbox-bench.XXXXXX")"
+work="$(mktemp -d "${TMPDIR:-/tmp}/signalbox-bench.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 
 printf 'binary=%s count=%s batch_size=%s jobs=%s repeats=%s\n' \

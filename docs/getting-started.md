@@ -5,10 +5,10 @@
 Install stable Rust with [rustup](https://rustup.rs/), clone the repository, and build a release binary:
 
 ```sh
-git clone https://github.com/squasher-ai/squasher-signalbox.git
-cd squasher-signalbox
+git clone https://github.com/squasher-ai/signalbox.git
+cd signalbox
 cargo build --release
-./target/release/squasher-signalbox --help
+./target/release/signalbox --help
 ```
 
 ## Generate a fixture
@@ -16,7 +16,7 @@ cargo build --release
 Start with a small JSON fixture while checking the output shape:
 
 ```sh
-./target/release/squasher-signalbox generate \
+./target/release/signalbox generate \
   --count 25 \
   --batch-size 10 \
   --format json \

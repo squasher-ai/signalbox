@@ -36,7 +36,7 @@ pub fn resource(config: &Config) -> Resource {
 
 pub fn scope() -> InstrumentationScope {
     InstrumentationScope {
-        name: "squasher-signalbox".into(),
+        name: "signalbox".into(),
         version: env!("CARGO_PKG_VERSION").into(),
         ..Default::default()
     }

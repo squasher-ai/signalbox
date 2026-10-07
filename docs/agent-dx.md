@@ -34,7 +34,7 @@ Generate a script from the same binary that will run it, so completion stays
 aligned with the installed flags:
 
 ```sh
-eval "$(squasher-signalbox completions zsh)"
+eval "$(signalbox completions zsh)"
 ```
 
 The command supports `bash`, `elvish`, `fish`, `powershell`, and `zsh`. Keep

@@ -20,6 +20,6 @@ body:
     id: version
     attributes:
       label: Version and Rust toolchain
-      placeholder: "squasher-signalbox 0.1.0; rustc 1.85"
+      placeholder: "signalbox 0.1.0; rustc 1.85"
     validations:
       required: true

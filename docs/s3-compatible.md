@@ -14,7 +14,7 @@ For local MinIO:
 ```sh
 mc mb local/fixtures
 AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
-  squasher-signalbox generate \
+  signalbox generate \
   --output s3://fixtures/agent-runs/example \
   --endpoint http://127.0.0.1:9000
 ```

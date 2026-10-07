@@ -8,7 +8,7 @@
 Generate. Observe. Squash flaky fixtures.</p>
 
 <p align="center">
-  <a href="https://github.com/squasher-ai/squasher-signalbox/actions/workflows/ci.yml"><img src="https://github.com/squasher-ai/squasher-signalbox/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/squasher-ai/signalbox/actions/workflows/ci.yml"><img src="https://github.com/squasher-ai/signalbox/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2B2BC4.svg" alt="MIT license"></a>
 </p>
 
@@ -34,7 +34,7 @@ Build from source with a recent stable Rust toolchain:
 
 ```sh
 cargo install --path .
-squasher-signalbox --help
+signalbox --help
 ```
 
 You can also run it without installing:
@@ -46,7 +46,7 @@ cargo run --release -- generate --count 10000 --output ./fixture
 For interactive use, generate shell completion from the installed binary:
 
 ```sh
-eval "$(squasher-signalbox completions zsh)"
+eval "$(signalbox completions zsh)"
 ```
 
 Use `bash`, `elvish`, `fish`, `powershell`, or `zsh` as the shell name. See [docs/agent-dx.md](docs/agent-dx.md) for the automation output contract.
@@ -55,17 +55,17 @@ Use `bash`, `elvish`, `fish`, `powershell`, or `zsh` as the shell name. See [doc
 
 ```sh
 # Protobuf (the default), three signals, 1,000 scenarios per shard.
-squasher-signalbox generate --count 10000 --output ./agent-fixture
+signalbox generate --count 10000 --output ./agent-fixture
 
 # OTLP/JSON for a human-readable fixture.
-squasher-signalbox generate --preset rag --format json --output ./rag-fixture
+signalbox generate --preset rag --format json --output ./rag-fixture
 
 # Validate a plan without creating files or contacting S3.
-squasher-signalbox generate --dry-run --count 100 --output ./preview
+signalbox generate --dry-run --count 100 --output ./preview
 
 # Inspect machine-readable defaults and presets.
-squasher-signalbox schema > config-schema.json
-squasher-signalbox presets
+signalbox schema > config-schema.json
+signalbox presets
 ```
 
 Use a new local output directory and a new S3 prefix for each run. Local files use create-only writes; S3 objects use conditional writes. A run writes one file per signal and shard plus `manifest.json`:
@@ -96,7 +96,7 @@ Use `--signals traces`, `--signals logs`, or `--signals metrics` when a test onl
 Use the AWS default credential chain and an `s3://bucket/prefix` target:
 
 ```sh
-AWS_PROFILE=fixtures squasher-signalbox generate \
+AWS_PROFILE=fixtures signalbox generate \
   --output s3://my-bucket/agent-runs/run-001 \
   --region us-east-1
 ```
@@ -105,7 +105,7 @@ For MinIO, LocalStack, or another S3-compatible service, pass a credential-free 
 
 ```sh
 AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
-  squasher-signalbox generate \
+  signalbox generate \
   --output s3://fixtures/agent-runs/run-001 \
   --endpoint http://127.0.0.1:9000 \
   --region us-east-1
