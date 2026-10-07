@@ -124,21 +124,6 @@ See [docs/s3-compatible.md](docs/s3-compatible.md) for provider setup and requir
 
 Read [docs/architecture.md](docs/architecture.md) for the execution model, [docs/agent-dx.md](docs/agent-dx.md) for automation contracts, and [docs/performance.md](docs/performance.md) for reproducible benchmarks. See [docs/alternatives.md](docs/alternatives.md) for the comparison with other generators.
 
-## Visual guide
-
-These diagrams show the system shape, the correlated agent story, and the CLI contract:
-
-<p align="center">
-  <img src="assets/diagrams/signalbox-architecture.png" alt="Signalbox architecture from scenario generation to portable output" width="760">
-</p>
-
-<p align="center">
-  <img src="assets/diagrams/signalbox-agent-story.png" alt="Correlated agent telemetry story across invocation, model, retrieval, tool, and outcome" width="760">
-</p>
-
-<p align="center">
-  <img src="assets/diagrams/signalbox-cli-workflow.png" alt="Signalbox CLI workflow from dry run to test fixture" width="760">
-</p>
 
 ## OpenTelemetry compatibility
 
