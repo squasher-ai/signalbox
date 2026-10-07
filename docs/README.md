@@ -14,3 +14,9 @@ Start with a small, inspectable fixture. Scale the same scenario after the outpu
 | [Other generators](alternatives.md) | Select the right tool and see the comparison |
 
 The root [README](../README.md) contains the quick start. The installed binary's `schema` command is the source for configuration fields and defaults.
+
+## Visual guide
+
+- [Architecture](../assets/diagrams/signalbox-architecture.png)
+- [Agent telemetry story](../assets/diagrams/signalbox-agent-story.png)
+- [CLI and SDK workflow](../assets/diagrams/signalbox-cli-workflow.png)
