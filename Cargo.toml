@@ -1,0 +1,41 @@
+[package]
+name = "otel-agent-forge"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+description = "Fast, deterministic synthetic OpenTelemetry data for agent and collector tests"
+readme = "README.md"
+repository = "https://github.com/squasher-ai/otel-agent-forge"
+homepage = "https://github.com/squasher-ai/otel-agent-forge"
+keywords = ["opentelemetry", "otel", "observability", "synthetic-data", "ai-agents"]
+categories = ["command-line-utilities", "development-tools::testing"]
+
+[[bin]]
+name = "otel-agent-forge"
+path = "src/main.rs"
+
+[dependencies]
+aws-config = "1"
+aws-sdk-s3 = "1"
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.18"
+opentelemetry-proto = { version = "0.31", default-features = false, features = [
+  "gen-tonic-messages", "trace", "logs", "metrics", "with-serde",
+] }
+prost = "0.14"
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints.rust]
+dead_code = "deny"
+unused_imports = "deny"
+unused_mut = "deny"
+unused_variables = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(coverage)"] }

@@ -1,0 +1,5 @@
+OTEL Agent Forge includes protocol and semantic-convention references from the
+OpenTelemetry project. OpenTelemetry is a trademark of the Cloud Native
+Computing Foundation. This project is not an official OpenTelemetry project.
+
+See https://opentelemetry.io/ for the OpenTelemetry project and license details.
