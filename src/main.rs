@@ -2,14 +2,21 @@ mod cli;
 mod config;
 mod encode;
 mod error;
+mod faults;
+mod ground_truth;
 mod logs;
 mod metrics;
 mod model;
 mod runner;
 mod semconv;
+mod send;
 mod sink;
 mod traces;
 
+#[cfg(test)]
+mod fault_tests;
+#[cfg(test)]
+mod send_tests;
 #[cfg(test)]
 mod tests;
 
@@ -111,11 +118,25 @@ async fn execute(cli: Cli) -> Result<Output, Error> {
             "defaults": Config::default()
         }))),
         Command::Presets => {
-            let presets = [Preset::Agent, Preset::Rag, Preset::Web]
+            let presets = Preset::ALL
                 .into_iter()
                 .map(|preset| json!({ "name": preset, "spans_per_record": preset.spans_per_record(), "logs_per_record": 1, "metric_points_per_record": preset.points_per_record() }))
                 .collect::<Vec<_>>();
-            Ok(Output::Json(json!({ "schema_version": 1, "presets": presets })))
+            let faults = <faults::FaultPreset as clap::ValueEnum>::value_variants()
+                .iter()
+                .map(|fault| {
+                    let name = clap::ValueEnum::to_possible_value(fault)
+                        .map(|value| value.get_name().to_owned());
+                    let supported: Vec<_> =
+                        Preset::ALL.into_iter().filter(|p| fault.kind().supports(*p)).collect();
+                    json!({ "name": name, "kind": fault.kind(), "default_rate": fault.kind().default_rate(),
+                        "release": *fault == faults::FaultPreset::ReleaseRegression,
+                        "supported_presets": supported })
+                })
+                .collect::<Vec<_>>();
+            Ok(Output::Json(
+                json!({ "schema_version": 1, "presets": presets, "fault_presets": faults }),
+            ))
         }
         Command::Completions { shell } => {
             let mut command = Cli::command();

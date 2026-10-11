@@ -60,6 +60,12 @@ signalbox generate --count 10000 --output ./agent-fixture
 # OTLP/JSON for a human-readable fixture.
 signalbox generate --preset rag --format json --output ./rag-fixture
 
+# A release that makes the database query six times slower, with labels.
+signalbox generate --preset web-topology --fault release-regression --output ./regression
+
+# Send directly to an OTLP/HTTP endpoint instead of writing shard files.
+signalbox generate --fault genai-rate-limit --send http://localhost:4318 --output ./sent-run
+
 # Validate a plan without creating files or contacting S3.
 signalbox generate --dry-run --count 100 --output ./preview
 
@@ -68,14 +74,17 @@ signalbox schema > config-schema.json
 signalbox presets
 ```
 
-Use a new local output directory and a new S3 prefix for each run. Local files use create-only writes; S3 objects use conditional writes. A run writes one file per signal and shard plus `manifest.json`:
+Use a new local output directory and a new S3 prefix for each run. Local files use create-only writes; S3 objects use conditional writes. A run writes one file per signal and shard, plus `ground_truth.json` and `manifest.json`:
 
 ```
 traces-000000000000.otlp.pb
 logs-000000000000.otlp.pb
 metrics-000000000000.otlp.pb
+ground_truth.json
 manifest.json
 ```
+
+`manifest.json` is written last and marks a complete run.
 
 Progress is written to stderr. Stdout contains exactly one JSON plan or summary, which makes the command safe to call from an agent, CI job, or shell pipeline. Use `--progress never` for fully quiet automation. Errors have stable `code` and `message` fields and a non-zero exit status.
 
@@ -88,8 +97,47 @@ Every preset produces a connected trace tree and matching signal records. Choose
 | `agent` | Agent invocation, model call, and tool call | Agent orchestration and tool policies |
 | `rag` | Agent invocation, retrieval, model call, and tool call | Retrieval pipelines and grounded answers |
 | `web` | HTTP request and database child | Web request correlation and backend failures |
+| `web-topology` | Gateway and API services; the API calls a database and a cache | Service maps, cross-service traces, and dependency faults |
 
 Use `--signals traces`, `--signals logs`, or `--signals metrics` when a test only needs one signal. The same scenario determines IDs, timestamps, error state, and metric values when multiple signals are enabled.
+
+## Releases, faults, and ground truth
+
+Set `--service-version` and a release schedule to change `service.version` during a run. Every signal carries the same version for a scenario:
+
+```sh
+signalbox generate --service-version 2.3.0 --release 2.4.0@1800,2.4.1@5400 --output ./releases
+```
+
+Inject labeled anomalies with `--fault` (or the `faults` config field). Named faults get consecutive windows between 40% and 90% of the run (10% to 45% when combined with `release-regression`). Each run writes `ground_truth.json` with the fault kind, time window, affected scenario count, service, version, span names, expected error type or status, and the signals that should show it. An evaluator can score detection and diagnosis against it; a run without faults is a labeled negative control.
+
+| Fault preset | What changes |
+| --- | --- |
+| `release-regression` | A new version starts at 50% of the run; its model call or query is 6x slower |
+| `error-spike` | Requests fail with an unhandled exception |
+| `db-saturation` | Database queries slow by 1.5-3 s; some time out (`web`, `web-topology`) |
+| `upstream-outage` | The model provider or the API behind the gateway returns 503 |
+| `log-burst` | 20 extra correlated WARN logs per scenario |
+| `genai-rate-limit` | The model provider returns 429 |
+| `genai-context-length` | The model request exceeds the context window (400) |
+| `genai-refusal` | The model response is filtered (`content_filter`) |
+| `genai-tool-error` | The tool call fails; the agent invocation completes |
+
+Faults are deterministic: the same seed and configuration give byte-identical shards and the same `ground_truth.json`. See [docs/faults.md](docs/faults.md) for windows, rates, and the label format.
+
+Use `--run-id` to give a run new trace, span, and conversation IDs without changing its values or timing. Runs with the same seed and different run IDs never share a trace ID, so repeated runs do not collide in one backend.
+
+## Send to an OTLP endpoint
+
+`--send <base-url>` posts each shard to `<base-url>/v1/traces`, `/v1/logs`, and `/v1/metrics` with gzip encoding, instead of writing shard files. The run still writes `ground_truth.json` and `manifest.json` to `--output`. Headers come from `SIGNALBOX_OTLP_HEADERS` in the OTLP exporter format (`name=value,name2=value2`, values percent-encoded). Header values are never printed or stored.
+
+```sh
+SIGNALBOX_OTLP_HEADERS="authorization=Bearer%20$TOKEN" \
+  signalbox generate --preset agent --fault genai-rate-limit \
+  --send https://otlp.example.com --output ./run-001
+```
+
+Requests retry on 429, 502, 503, 504, and connection errors with backoff, and honor `Retry-After`. At most `--jobs` requests are in flight. The summary reports requests, retries, compressed bytes, and partial-success rejections.
 
 ## S3 and compatible storage
 
@@ -115,7 +163,8 @@ See [docs/s3-compatible.md](docs/s3-compatible.md) for provider setup and requir
 
 ## Design guarantees
 
-- **Connected signals:** trace IDs, span IDs, log IDs, conversation IDs, timestamps, and failures line up across signals.
+- **Connected signals:** trace IDs, span IDs, log IDs, conversation IDs, service versions, timestamps, and failures line up across signals.
+- **Labeled faults:** every injected anomaly has a ground-truth label computed from the same deterministic draws as the data.
 - **Repeatable:** the same seed and configuration produce byte-identical shards, independent of worker count.
 - **Bounded:** workers generate one shard at a time; `jobs * batch_size` is capped at one million scenarios.
 - **Parallel by design:** generation is parallel across shards and encoding runs off the async runtime. Benchmark release builds with your scenario and hardware before comparing tools.

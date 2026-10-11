@@ -30,6 +30,10 @@ pub struct Summary {
     pub bytes_written: u64,
     pub elapsed_ms: u64,
     pub records_per_second: u64,
+    /// Scenarios labeled with each configured fault, in `faults` order.
+    pub affected_records: Vec<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send: Option<crate::send::SendSummary>,
 }
 
 pub fn plan(config: &Config) -> Value {
@@ -37,7 +41,26 @@ pub fn plan(config: &Config) -> Value {
         "shards_per_signal": config.shards(), "counts": counts_json(config),
         "max_in_flight_records": config.jobs * config.batch_size,
         "files": format!("{{signal}}-{{shard:012}}.otlp.{}", config.format.extension()),
+        "identity": identity(config), "send": send_plan(config),
+        "fault_windows": config.faults.iter().map(|fault| {
+            let (first, end) = crate::faults::window(config, fault);
+            json!({ "kind": fault.kind, "first_record": first, "end_record_exclusive": end })
+        }).collect::<Vec<_>>(),
         "semantic_conventions": conventions() })
+}
+
+fn identity(config: &Config) -> Value {
+    json!({ "run_id": config.run_id,
+        "id_salt": format!("{:016x}", crate::model::id_salt(config)) })
+}
+
+fn send_plan(config: &Config) -> Value {
+    config.send.as_ref().map_or(Value::Null, |base| {
+        let urls: Vec<_> =
+            config.signals.iter().map(|signal| crate::send::endpoint(base, *signal)).collect();
+        json!({ "endpoints": urls, "headers_env": crate::send::HEADERS_ENV,
+            "content_encoding": "gzip", "max_concurrent_requests": config.jobs })
+    })
 }
 
 fn counts_json(config: &Config) -> Value {
@@ -62,7 +85,11 @@ fn counts(config: &Config) -> (u64, u64, u64) {
         } else {
             0
         },
-        if config.signals.contains(&Signal::Logs) { config.count } else { 0 },
+        if config.signals.contains(&Signal::Logs) {
+            config.count + crate::faults::total_burst_logs(config)
+        } else {
+            0
+        },
         if config.signals.contains(&Signal::Metrics) {
             config.count * config.preset.points_per_record()
         } else {
@@ -73,6 +100,10 @@ fn counts(config: &Config) -> (u64, u64, u64) {
 
 pub async fn run(config: Config) -> Result<Summary, Error> {
     config.validate()?;
+    let sender = match &config.send {
+        Some(base) => Some(Arc::new(crate::send::Sender::from_env(base)?)),
+        None => None,
+    };
     let sink =
         Arc::new(Sink::create(&config.output, config.endpoint.as_deref(), &config.region).await?);
     let started = Instant::now();
@@ -85,8 +116,10 @@ pub async fn run(config: Config) -> Result<Summary, Error> {
         let sink = sink.clone();
         let cursor = cursor.clone();
         let progress = progress.clone();
+        let sender = sender.clone();
         workers.spawn(async move {
             let mut bytes_written = 0u64;
+            let mut affected = vec![0u64; config.faults.len()];
             loop {
                 let shard = cursor.fetch_add(1, Ordering::Relaxed);
                 if shard >= config.shards() {
@@ -94,26 +127,47 @@ pub async fn run(config: Config) -> Result<Summary, Error> {
                 }
                 let start = shard * config.batch_size as u64;
                 let end = start.saturating_add(config.batch_size as u64).min(config.count);
+                if !config.faults.is_empty() {
+                    let tally_config = config.clone();
+                    let hits = tokio::task::spawn_blocking(move || {
+                        crate::faults::tally(&tally_config, start, end)
+                    })
+                    .await
+                    .map_err(|_| Error::new("worker_failed", "Generation worker stopped"))?;
+                    affected.iter_mut().zip(hits).for_each(|(total, hits)| *total += hits);
+                }
                 for signal in &config.signals {
                     let generation_config = config.clone();
                     let signal = *signal;
-                    let bytes = tokio::task::spawn_blocking(move || match signal {
-                        Signal::Traces => encode(
-                            &crate::traces::generate(&generation_config, start, end),
-                            generation_config.format,
-                        ),
-                        Signal::Logs => encode(
-                            &crate::logs::generate(&generation_config, start, end),
-                            generation_config.format,
-                        ),
-                        Signal::Metrics => encode(
-                            &crate::metrics::generate(&generation_config, start, end),
-                            generation_config.format,
-                        ),
+                    let compress = sender.is_some();
+                    let (size, bytes) = tokio::task::spawn_blocking(move || {
+                        let bytes = match signal {
+                            Signal::Traces => encode(
+                                &crate::traces::generate(&generation_config, start, end),
+                                generation_config.format,
+                            ),
+                            Signal::Logs => encode(
+                                &crate::logs::generate(&generation_config, start, end),
+                                generation_config.format,
+                            ),
+                            Signal::Metrics => encode(
+                                &crate::metrics::generate(&generation_config, start, end),
+                                generation_config.format,
+                            ),
+                        }?;
+                        let size = bytes.len() as u64;
+                        Ok::<_, Error>((
+                            size,
+                            if compress { crate::send::gzip(&bytes)? } else { bytes },
+                        ))
                     })
                     .await
                     .map_err(|_| Error::new("worker_failed", "Generation worker stopped"))??;
-                    bytes_written += bytes.len() as u64;
+                    bytes_written += size;
+                    if let Some(sender) = &sender {
+                        sender.send(signal, bytes, config.format).await?;
+                        continue;
+                    }
                     sink.write(
                         &format!(
                             "{}-{shard:012}.otlp.{}",
@@ -127,14 +181,17 @@ pub async fn run(config: Config) -> Result<Summary, Error> {
                 }
                 progress.inc(end - start);
             }
-            Ok::<_, Error>(bytes_written)
+            Ok::<_, Error>((bytes_written, affected))
         });
     }
     let mut bytes_written = 0;
+    let mut affected = vec![0u64; config.faults.len()];
     while !workers.is_empty() {
         tokio::select! {
             result = workers.join_next() => {
-                bytes_written += result.expect("workers remain").map_err(|_| Error::new("worker_failed", "Output worker stopped"))??;
+                let (bytes, hits) = result.expect("workers remain").map_err(|_| Error::new("worker_failed", "Output worker stopped"))??;
+                bytes_written += bytes;
+                affected.iter_mut().zip(hits).for_each(|(total, hits)| *total += hits);
             },
             result = tokio::signal::ctrl_c() => {
                 result.map_err(|_| Error::new("signal_failed", "Cannot install interrupt handler"))?;
@@ -157,9 +214,21 @@ pub async fn run(config: Config) -> Result<Summary, Error> {
         bytes_written,
         elapsed_ms: elapsed.as_millis() as u64,
         records_per_second: (config.count as f64 / elapsed.as_secs_f64().max(0.000_001)) as u64,
+        affected_records: affected,
+        send: sender.as_ref().map(|sender| sender.summary()),
     };
+    let ground_truth = crate::ground_truth::build(&config, &summary.affected_records);
+    sink.write(
+        "ground_truth.json",
+        serde_json::to_vec_pretty(&ground_truth)
+            .map_err(|_| Error::new("encode_failed", "Cannot encode ground truth"))?,
+        "application/json",
+    )
+    .await?;
     let manifest = json!({ "schema_version": 1, "status": "complete", "config": &*config,
         "semantic_conventions": conventions(), "summary": &summary,
+        "identity": identity(&config), "ground_truth": "ground_truth.json",
+        "shards_sent": config.send.is_some(),
         "files": { "pattern": format!("{{signal}}-{{shard:012}}.otlp.{}", config.format.extension()),
             "shard_index_start": 0, "shards_per_signal": config.shards(),
             "records_in_last_shard": config.count - (config.shards() - 1) * config.batch_size as u64 } });
