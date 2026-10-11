@@ -25,7 +25,11 @@ All notable changes to Squasher Signalbox are documented here.
 ### Security
 
 - `--send` ignores `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY`, so payloads and header values go only to the configured endpoint.
-- `--send` reads at most 64 KiB of a success response body and fails the run on a larger body.
+- `--send` reads at most 64 KiB of a success response body and fails the run on a larger body. A truncated or unreadable success body also fails the send.
+
+### Fixed
+
+- `--send` accepts `Retry-After` as an HTTP date as well as delay seconds, capped at 60 s.
 
 ## [0.1.0]
 

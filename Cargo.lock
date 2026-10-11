@@ -2622,6 +2622,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "flate2",
+ "httpdate",
  "indicatif",
  "opentelemetry-proto",
  "prost",

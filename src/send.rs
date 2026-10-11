@@ -158,7 +158,7 @@ impl Sender {
     }
 
     /// Post one gzip-compressed export request, retrying 429, 502, 503, 504,
-    /// and transport errors. `Retry-After` seconds are honored up to 60 s.
+    /// and transport errors. `Retry-After` seconds or HTTP dates are honored up to 60 s.
     pub async fn send(&self, signal: Signal, body: Vec<u8>, format: Format) -> Result<(), Error> {
         let url = endpoint(&self.base, signal);
         let mut delay = Duration::from_millis(250);
@@ -184,7 +184,7 @@ impl Sender {
                     return Ok(());
                 }
                 Ok(response) if matches!(response.status().as_u16(), 429 | 502 | 503 | 504) => {
-                    retry_after(response.headers()).unwrap_or(delay)
+                    retry_after(response.headers(), std::time::SystemTime::now()).unwrap_or(delay)
                 }
                 Ok(response) => {
                     return Err(Error::new(
@@ -240,9 +240,11 @@ async fn capped_body(mut response: reqwest::Response) -> Result<Vec<u8>, Error> 
         return Err(too_large());
     }
     let mut body = Vec::new();
-    // A read error after a success status leaves the request accepted; only
-    // the optional partial-success count is lost.
-    while let Ok(Some(chunk)) = response.chunk().await {
+    // A truncated or failed body is an error: the endpoint did not finish
+    // its response, so the export is not reported as a success.
+    while let Some(chunk) = response.chunk().await.map_err(|_| {
+        Error::new("send_failed", "The OTLP endpoint response body could not be read")
+    })? {
         if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
             return Err(too_large());
         }
@@ -259,9 +261,15 @@ fn signal_slot(signal: Signal) -> usize {
     }
 }
 
-fn retry_after(headers: &HeaderMap) -> Option<Duration> {
-    let seconds = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?.trim().parse().ok()?;
-    Some(Duration::from_secs(seconds).min(MAX_RETRY_AFTER))
+/// Parse `Retry-After` as delay seconds or an HTTP date, capped at 60 s. A
+/// date in the past means retry now.
+pub(crate) fn retry_after(headers: &HeaderMap, now: std::time::SystemTime) -> Option<Duration> {
+    let value = headers.get(reqwest::header::RETRY_AFTER)?.to_str().ok()?.trim();
+    let wait = match value.parse::<u64>() {
+        Ok(seconds) => Duration::from_secs(seconds),
+        Err(_) => httpdate::parse_http_date(value).ok()?.duration_since(now).unwrap_or_default(),
+    };
+    Some(wait.min(MAX_RETRY_AFTER))
 }
 
 /// Read the OTLP partial-success count from a response body.

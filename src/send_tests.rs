@@ -275,3 +275,33 @@ async fn send_ignores_proxy_environment() {
     assert_eq!(*proxy_hits.lock().unwrap(), 0, "the request went through the proxy");
     assert_eq!(received.lock().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn truncated_success_bodies_fail_the_send() {
+    // Declares 100 bytes, sends 10, then closes the connection.
+    let mut response =
+        b"HTTP/1.1 200 OK\r\ncontent-length: 100\r\nconnection: close\r\n\r\n".to_vec();
+    response.extend_from_slice(b"0123456789");
+    let (address, _) = fixed_server(response).await;
+    let error = send_once(&address).await.unwrap_err();
+    assert_eq!(error.code, "send_failed");
+    assert!(error.message.contains("could not be read"));
+}
+
+#[test]
+fn retry_after_accepts_seconds_and_http_dates() {
+    use crate::send::retry_after;
+    use std::time::{Duration, UNIX_EPOCH};
+    let now = UNIX_EPOCH + Duration::from_secs(1_445_412_480); // Wed, 21 Oct 2015 07:28:00 GMT
+    let wait = |value: &str| {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(reqwest::header::RETRY_AFTER, value.parse().unwrap());
+        retry_after(&headers, now)
+    };
+    assert_eq!(wait("7"), Some(Duration::from_secs(7)));
+    assert_eq!(wait("3600"), Some(Duration::from_secs(60)));
+    assert_eq!(wait("Wed, 21 Oct 2015 07:28:12 GMT"), Some(Duration::from_secs(12)));
+    assert_eq!(wait("Wed, 21 Oct 2015 09:00:00 GMT"), Some(Duration::from_secs(60)));
+    assert_eq!(wait("Wed, 21 Oct 2015 07:00:00 GMT"), Some(Duration::ZERO));
+    assert_eq!(wait("soon"), None);
+}
