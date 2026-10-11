@@ -27,12 +27,15 @@ pub mod attributes {
     pub const GEN_AI_OPERATION_NAME: &str = "gen_ai.operation.name";
     pub const GEN_AI_PROVIDER_NAME: &str = "gen_ai.provider.name";
     pub const GEN_AI_REQUEST_MODEL: &str = "gen_ai.request.model";
+    pub const GEN_AI_RESPONSE_FINISH_REASONS: &str = "gen_ai.response.finish_reasons";
     pub const GEN_AI_RESPONSE_MODEL: &str = "gen_ai.response.model";
     pub const HTTP_REQUEST_METHOD: &str = "http.request.method";
     pub const HTTP_RESPONSE_STATUS_CODE: &str = "http.response.status_code";
     pub const HTTP_ROUTE: &str = "http.route";
+    pub const SERVER_ADDRESS: &str = "server.address";
     pub const SERVICE_NAME: &str = "service.name";
     pub const SERVICE_VERSION: &str = "service.version";
+    pub const DB_COLLECTION_NAME: &str = "db.collection.name";
     pub const DB_OPERATION_NAME: &str = "db.operation.name";
     pub const DB_SYSTEM_NAME: &str = "db.system.name";
     pub const GEN_AI_DATA_SOURCE_ID: &str = "gen_ai.data_source.id";

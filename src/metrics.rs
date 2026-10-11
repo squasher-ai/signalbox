@@ -1,6 +1,6 @@
 use crate::{
     config::{Config, Preset},
-    model::{Record, resource, schema_url, scope, text},
+    model::{Groups, Record, Role, resource, schema_url, scope, text},
     semconv::attributes as attr,
 };
 use opentelemetry_proto::tonic::{
@@ -12,91 +12,162 @@ use opentelemetry_proto::tonic::{
     },
 };
 
+#[derive(Clone, Copy)]
+enum Kind {
+    Histogram,
+    Sum,
+}
+
+type Spec = (&'static str, &'static str, Kind);
+
+const GENAI: &[Spec] = &[
+    ("gen_ai.client.inference.duration", "s", Kind::Histogram),
+    ("gen_ai.client.inference.usage.input_tokens", "{token}", Kind::Sum),
+    ("gen_ai.client.inference.usage.output_tokens", "{token}", Kind::Sum),
+    ("gen_ai.client.inference.operation.input_tokens", "{token}", Kind::Histogram),
+    ("gen_ai.client.inference.operation.output_tokens", "{token}", Kind::Histogram),
+];
+const WEB: &[Spec] = &[
+    ("http.server.request.duration", "s", Kind::Histogram),
+    ("synthetic.request.count", "{request}", Kind::Sum),
+];
+const GATEWAY: &[Spec] = &[("http.server.request.duration", "s", Kind::Histogram)];
+const API: &[Spec] = &[
+    ("http.server.request.duration", "s", Kind::Histogram),
+    ("db.client.operation.duration", "s", Kind::Histogram),
+];
+const DURATION_BOUNDS: &[f64] = &[0.01, 0.05, 0.1, 0.5, 1.0, 5.0];
+
+fn specs(preset: Preset, role: Role) -> &'static [Spec] {
+    match (preset, role) {
+        (Preset::Agent | Preset::Rag, _) => GENAI,
+        (Preset::Web, _) => WEB,
+        (Preset::WebTopology, Role::Gateway) => GATEWAY,
+        (Preset::WebTopology, Role::Primary) => API,
+    }
+}
+
+#[derive(Default)]
+struct Points {
+    histograms: Vec<Vec<HistogramDataPoint>>,
+    sums: Vec<Vec<NumberDataPoint>>,
+}
+
+impl Points {
+    fn histogram(&mut self, slot: usize, point: HistogramDataPoint) {
+        self.histograms.resize_with(self.histograms.len().max(slot + 1), Vec::new);
+        self.histograms[slot].push(point);
+    }
+    fn sum(&mut self, slot: usize, point: NumberDataPoint) {
+        self.sums.resize_with(self.sums.len().max(slot + 1), Vec::new);
+        self.sums[slot].push(point);
+    }
+}
+
+fn take<T>(slots: &mut [Vec<T>], slot: usize) -> Vec<T> {
+    slots.get_mut(slot).map(std::mem::take).unwrap_or_default()
+}
+
+fn seconds(nanos: u64) -> f64 {
+    nanos as f64 / 1_000_000_000.0
+}
+
 pub fn generate(config: &Config, start: u64, end: u64) -> ExportMetricsServiceRequest {
-    let mut duration = Vec::with_capacity((end - start) as usize);
-    let mut input_sum = Vec::with_capacity((end - start) as usize);
-    let mut output_sum = Vec::with_capacity((end - start) as usize);
-    let mut input_hist = Vec::with_capacity((end - start) as usize);
-    let mut output_hist = Vec::with_capacity((end - start) as usize);
+    let mut groups: Groups<Points> = Groups::new();
     for index in start..end {
         let record = Record::new(config, index);
-        let mut attributes = if config.preset == Preset::Web {
-            record.root_attributes(config.preset)
-        } else {
-            record.inference_attributes()
+        let point = |attributes, value, bounds: &[f64]| {
+            histogram(&record, config, attributes, value, bounds)
         };
-        let elapsed = if config.preset == Preset::Web {
-            0.9
-        } else {
-            record.duration as f64 / 1_000_000_000.0
-        };
-        duration.push(histogram(
-            &record,
-            config,
-            attributes.clone(),
-            elapsed,
-            &[0.01, 0.05, 0.1, 0.5, 1.0, 5.0],
-        ));
-        if config.preset != Preset::Web {
-            attributes.push(text(attr::GEN_AI_TOKEN_MODALITY, "text"));
-        }
-        input_sum.push(number(
-            &record,
-            config,
-            attributes.clone(),
-            if config.preset == Preset::Web { 1 } else { record.input_tokens },
-        ));
-        if config.preset != Preset::Web {
-            output_sum.push(number(&record, config, attributes.clone(), record.output_tokens));
-            input_hist.push(histogram(
-                &record,
-                config,
-                attributes.clone(),
-                record.input_tokens as f64,
-                &[256.0, 1024.0, 4096.0, 16384.0],
-            ));
-            output_hist.push(histogram(
-                &record,
-                config,
-                attributes,
-                record.output_tokens as f64,
-                &[64.0, 256.0, 1024.0, 4096.0],
-            ));
+        match config.preset {
+            Preset::Agent | Preset::Rag => {
+                let points = groups.get(Role::Primary, record.version);
+                let mut attributes = record.inference_attributes();
+                // A request that failed after the model call (error_spike)
+                // still records its error on the operation's points.
+                if record.failed && !record.work_failed {
+                    attributes.push(text(attr::ERROR_TYPE, record.error_type));
+                }
+                points.histogram(
+                    0,
+                    point(attributes.clone(), seconds(record.work_duration()), DURATION_BOUNDS),
+                );
+                attributes.push(text(attr::GEN_AI_TOKEN_MODALITY, "text"));
+                points.sum(1, number(&record, config, attributes.clone(), record.input_tokens));
+                points.sum(2, number(&record, config, attributes.clone(), record.output_tokens));
+                points.histogram(
+                    3,
+                    point(
+                        attributes.clone(),
+                        record.input_tokens as f64,
+                        &[256.0, 1024.0, 4096.0, 16384.0],
+                    ),
+                );
+                points.histogram(
+                    4,
+                    point(attributes, record.output_tokens as f64, &[64.0, 256.0, 1024.0, 4096.0]),
+                );
+            }
+            Preset::Web => {
+                let points = groups.get(Role::Primary, record.version);
+                let attributes = record.root_attributes(Preset::Web);
+                points.histogram(
+                    0,
+                    point(attributes.clone(), seconds(record.root_duration()), DURATION_BOUNDS),
+                );
+                points.sum(1, number(&record, config, attributes, 1));
+            }
+            Preset::WebTopology => {
+                let server = record.root_attributes(Preset::WebTopology);
+                let mut gateway = server.clone();
+                gateway[1] = text(attr::HTTP_ROUTE, crate::traces::GATEWAY_ROUTE);
+                let duration = seconds(record.root_duration());
+                groups
+                    .get(Role::Gateway, record.version)
+                    .histogram(0, point(gateway, duration, DURATION_BOUNDS));
+                let points = groups.get(Role::Primary, record.version);
+                points.histogram(0, point(server, duration - 0.06, DURATION_BOUNDS));
+                let mut database = vec![
+                    text(attr::DB_SYSTEM_NAME, "postgresql"),
+                    text(attr::DB_OPERATION_NAME, "SELECT"),
+                    text(attr::DB_COLLECTION_NAME, "orders"),
+                ];
+                if record.work_failed {
+                    database.push(text(attr::ERROR_TYPE, record.error_type));
+                }
+                points.histogram(
+                    1,
+                    point(database, seconds(record.work_duration()), DURATION_BOUNDS),
+                );
+            }
         }
     }
-    let metrics = if config.preset == Preset::Web {
-        vec![
-            histogram_metric("http.server.request.duration", "s", duration),
-            sum_metric("synthetic.request.count", "{request}", input_sum),
-        ]
-    } else {
-        vec![
-            histogram_metric("gen_ai.client.inference.duration", "s", duration),
-            sum_metric("gen_ai.client.inference.usage.input_tokens", "{token}", input_sum),
-            sum_metric("gen_ai.client.inference.usage.output_tokens", "{token}", output_sum),
-            histogram_metric(
-                "gen_ai.client.inference.operation.input_tokens",
-                "{token}",
-                input_hist,
-            ),
-            histogram_metric(
-                "gen_ai.client.inference.operation.output_tokens",
-                "{token}",
-                output_hist,
-            ),
-        ]
-    };
-    ExportMetricsServiceRequest {
-        resource_metrics: vec![ResourceMetrics {
-            resource: Some(resource(config)),
-            schema_url: crate::semconv::attributes::SEMCONV_SCHEMA_URL.into(),
-            scope_metrics: vec![ScopeMetrics {
-                scope: Some(scope()),
-                metrics,
-                schema_url: schema_url(config.preset).into(),
-            }],
-        }],
-    }
+    let resource_metrics = groups
+        .0
+        .into_iter()
+        .map(|((role, version), mut points)| {
+            let metrics = specs(config.preset, role)
+                .iter()
+                .enumerate()
+                .map(|(slot, (name, unit, kind))| match kind {
+                    Kind::Histogram => {
+                        histogram_metric(name, unit, take(&mut points.histograms, slot))
+                    }
+                    Kind::Sum => sum_metric(name, unit, take(&mut points.sums, slot)),
+                })
+                .collect();
+            ResourceMetrics {
+                resource: Some(resource(config, role, version)),
+                schema_url: crate::semconv::attributes::SEMCONV_SCHEMA_URL.into(),
+                scope_metrics: vec![ScopeMetrics {
+                    scope: Some(scope()),
+                    metrics,
+                    schema_url: schema_url(config.preset).into(),
+                }],
+            }
+        })
+        .collect();
+    ExportMetricsServiceRequest { resource_metrics }
 }
 
 fn number(

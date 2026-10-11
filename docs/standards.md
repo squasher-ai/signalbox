@@ -20,6 +20,12 @@ Every resource also carries the Squasher extension attributes
 `squasher.generator.version`. Use them to filter generated traffic in a test
 backend without confusing it with application telemetry.
 
+Fault scenarios use the same pinned keys: `error.type`, `http.response.status_code`,
+`gen_ai.response.finish_reasons`, `server.address`, `db.system.name`,
+`db.operation.name`, and `db.collection.name`. Error type values follow the
+`error.type` guidance: provider error codes (`rate_limit_exceeded`,
+`context_length_exceeded`), HTTP status codes (`503`), or a short class name.
+
 ## Naming sources
 
 Use the official OpenTelemetry semantic-conventions registry and its generated documentation first:
