@@ -325,3 +325,119 @@ fn trace_request_round_trips_with_array_attributes() {
     };
     assert_eq!(reasons.values, vec![AnyValue { value: Some(Value::StringValue("stop".into())) }]);
 }
+
+/// Record indices whose items in `signal` carry `error.type` = `error_type`.
+fn erroring_records(config: &Config, signal: &str, error_type: &str) -> BTreeSet<u64> {
+    let wanted = Value::StringValue(error_type.into());
+    let by_trace = |trace_id: &[u8]| u64::from_be_bytes(trace_id[8..].try_into().unwrap()) - 1;
+    let mut found = BTreeSet::new();
+    match signal {
+        "traces" => {
+            for (_, _, span) in spans(config) {
+                if attribute(&span.attributes, attr::ERROR_TYPE) == Some(&wanted) {
+                    found.insert(by_trace(&span.trace_id));
+                }
+            }
+        }
+        "logs" => {
+            for group in logs::generate(config, 0, config.count).resource_logs {
+                for log in group.scope_logs.into_iter().flat_map(|scope| scope.log_records) {
+                    if attribute(&log.attributes, attr::ERROR_TYPE) == Some(&wanted) {
+                        found.insert(by_trace(&log.trace_id));
+                    }
+                }
+            }
+        }
+        "metrics" => {
+            use opentelemetry_proto::tonic::metrics::v1::metric::Data;
+            let request = metrics::generate(config, 0, config.count);
+            for metric in request
+                .resource_metrics
+                .into_iter()
+                .flat_map(|group| group.scope_metrics)
+                .flat_map(|scope| scope.metrics)
+            {
+                let points: Vec<(Vec<KeyValue>, u64)> = match metric.data.unwrap() {
+                    Data::Histogram(data) => data
+                        .data_points
+                        .into_iter()
+                        .map(|point| (point.attributes, point.start_time_unix_nano))
+                        .collect(),
+                    Data::Sum(data) => data
+                        .data_points
+                        .into_iter()
+                        .map(|point| (point.attributes, point.start_time_unix_nano))
+                        .collect(),
+                    other => panic!("unexpected metric data {other:?}"),
+                };
+                for (attributes, start) in points {
+                    if attribute(&attributes, attr::ERROR_TYPE) == Some(&wanted) {
+                        found.insert((start - config.start_ns) / config.interval_ns);
+                    }
+                }
+            }
+        }
+        other => panic!("unknown signal {other}"),
+    }
+    found
+}
+
+#[test]
+fn error_spike_labels_match_every_expected_signal() {
+    for preset in [Preset::Agent, Preset::Rag, Preset::Web, Preset::WebTopology] {
+        let config = Config {
+            count: 80,
+            preset,
+            error_rate: 0,
+            faults: vec![fault(FaultKind::ErrorSpike, 20, 60)],
+            ..Config::default()
+        };
+        let affected = crate::faults::tally(&config, 0, config.count);
+        let truth = crate::ground_truth::build(&config, &affected);
+        let label = &truth["faults"][0];
+        let error_type = label["error_type"].as_str().unwrap();
+        let signals = label["expected_signals"].as_array().unwrap();
+        assert_eq!(signals.len(), 3, "{preset:?}");
+        let mut expected = None;
+        for signal in signals {
+            let signal = signal.as_str().unwrap();
+            let found = erroring_records(&config, signal, error_type);
+            assert_eq!(found.len() as u64, affected[0], "{preset:?} {signal}");
+            assert!(found.iter().all(|index| (20..60).contains(index)), "{preset:?} {signal}");
+            assert_eq!(expected.get_or_insert_with(|| found.clone()), &found, "{preset:?}");
+        }
+    }
+}
+
+#[test]
+fn release_regression_uses_the_offset_of_a_configured_release() {
+    let cli = Cli::try_parse_from([
+        "signalbox",
+        "generate",
+        "--count",
+        "400",
+        "--release",
+        "1.1.0@120",
+        "--fault",
+        "release-regression",
+    ])
+    .unwrap();
+    let Command::Generate(generate) = cli.command else { panic!("wrong command") };
+    let (config, _) = generate.resolve().unwrap();
+    assert_eq!(config.releases, vec![Release { at_s: 120, version: "1.1.0".into() }]);
+    let regression = &config.faults[0];
+    assert_eq!((regression.start_s, regression.version.as_deref()), (120, Some("1.1.0")));
+    let affected = crate::faults::tally(&config, 0, config.count);
+    let truth = crate::ground_truth::build(&config, &affected);
+    let label = &truth["faults"][0];
+    assert_eq!(label["records"]["first"], truth["versions"][1]["records"]["first"]);
+    assert_eq!(label["affected_records"], 280);
+    // The release serves exactly the labeled scenarios.
+    let served: BTreeSet<u64> = spans(&config)
+        .into_iter()
+        .filter(|(_, _, span)| span.name == traces::AGENT_CHAT)
+        .filter(|(_, version, _)| version == "1.1.0")
+        .map(|(_, _, span)| (span.start_time_unix_nano - config.start_ns) / config.interval_ns)
+        .collect();
+    assert_eq!(served, (120..400).collect());
+}

@@ -25,6 +25,9 @@ use std::{
 pub const HEADERS_ENV: &str = "SIGNALBOX_OTLP_HEADERS";
 const MAX_ATTEMPTS: u32 = 6;
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
+/// Largest success response body read for partial-success counts. OTLP
+/// responses are tiny; a larger body is not read into memory.
+pub const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SendSummary {
@@ -130,6 +133,9 @@ impl Sender {
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
+            // Ignore HTTP_PROXY, HTTPS_PROXY, and ALL_PROXY so payloads and
+            // credential headers go only to the configured endpoint.
+            .no_proxy()
             .build()
             .map_err(|_| Error::new("send_failed", "Cannot create the OTLP HTTP client"))?;
         Ok(Self {
@@ -172,7 +178,7 @@ impl Sender {
             let wait = match response {
                 Ok(response) if response.status().is_success() => {
                     self.bytes_sent.fetch_add(body.len() as u64, Ordering::Relaxed);
-                    let bytes = response.bytes().await.unwrap_or_default();
+                    let bytes = capped_body(response).await?;
                     self.rejected[signal_slot(signal)]
                         .fetch_add(rejected(signal, format, &bytes), Ordering::Relaxed);
                     return Ok(());
@@ -218,6 +224,31 @@ impl Sender {
             rejected_data_points: load(&self.rejected[2]),
         }
     }
+}
+
+/// Read a success body of at most [`MAX_RESPONSE_BYTES`]. A larger body is an
+/// error; it is rejected from `Content-Length` when present, and otherwise
+/// while it streams, so it is never buffered whole.
+async fn capped_body(mut response: reqwest::Response) -> Result<Vec<u8>, Error> {
+    let too_large = || {
+        Error::new(
+            "send_failed",
+            format!("The OTLP endpoint response is larger than {MAX_RESPONSE_BYTES} bytes"),
+        )
+    };
+    if response.content_length().is_some_and(|length| length > MAX_RESPONSE_BYTES as u64) {
+        return Err(too_large());
+    }
+    let mut body = Vec::new();
+    // A read error after a success status leaves the request accepted; only
+    // the optional partial-success count is lost.
+    while let Ok(Some(chunk)) = response.chunk().await {
+        if body.len() + chunk.len() > MAX_RESPONSE_BYTES {
+            return Err(too_large());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 fn signal_slot(signal: Signal) -> usize {

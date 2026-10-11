@@ -129,7 +129,7 @@ Use `--run-id` to give a run new trace, span, and conversation IDs without chang
 
 ## Send to an OTLP endpoint
 
-`--send <base-url>` posts each shard to `<base-url>/v1/traces`, `/v1/logs`, and `/v1/metrics` with gzip encoding, instead of writing shard files. The run still writes `ground_truth.json` and `manifest.json` to `--output`. Headers come from `SIGNALBOX_OTLP_HEADERS` in the OTLP exporter format (`name=value,name2=value2`, values percent-encoded). Header values are never printed or stored.
+`--send <base-url>` posts each shard to `<base-url>/v1/traces`, `/v1/logs`, and `/v1/metrics` with gzip encoding, instead of writing shard files. The run still writes `ground_truth.json` and `manifest.json` to `--output`. Headers come from `SIGNALBOX_OTLP_HEADERS` in the OTLP exporter format (`name=value,name2=value2`, values percent-encoded). Header values are never printed or stored. Requests go directly to the endpoint: `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` are ignored, and redirects are not followed. A success response body larger than 64 KiB fails the run.
 
 ```sh
 SIGNALBOX_OTLP_HEADERS="authorization=Bearer%20$TOKEN" \

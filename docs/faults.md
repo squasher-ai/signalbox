@@ -64,9 +64,10 @@ other than `release-regression` share the span from 40% to 90% of the run in
 equal, consecutive windows, in the order given. This leaves a baseline before
 and a recovery after each fault. `release-regression` adds a release at 50% of
 the run (`1.0.0` becomes `1.1.0`; other version strings get `-next`) and a
-`latency_regression` limited to that version until the end of the run. When it
-is combined with other presets, they share 10% to 45% instead, so no window
-overlaps the release. The manifest records the expanded configuration.
+`latency_regression` limited to that version until the end of the run. If the
+configuration already has a release of that version, the preset keeps it at its
+own offset and the regression starts there. When it is combined with other
+presets, they share 10% to 45% instead, so no window overlaps a release at 50%. The manifest records the expanded configuration.
 
 ## `ground_truth.json`
 

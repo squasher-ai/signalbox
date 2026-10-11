@@ -14,7 +14,7 @@ A config file is read with `--config path.json` or from stdin with `--config -`.
 | `batch_size` | `1000` | `1..=100000` |
 | `jobs` | up to 8 | `1..=256`, bounded in-flight work |
 | `seed` | `42` | unsigned 64-bit |
-| `preset` | `agent` | `agent`, `rag`, `web` |
+| `preset` | `agent` | `agent`, `rag`, `web`, `web-topology` |
 | `signals` | all three | unique, non-empty |
 | `format` | `protobuf` | `protobuf` or `json` |
 | `error_rate` | `5` | `0..=100` |

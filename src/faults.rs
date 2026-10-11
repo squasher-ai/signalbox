@@ -105,7 +105,8 @@ impl Fault {
 /// see [`apply_presets`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FaultPreset {
-    /// Release a new version at 50% of the run; its work span is 6x slower.
+    /// Release a new version at 50% of the run (or at the offset of a
+    /// configured release of that version); its work span is 6x slower.
     ReleaseRegression,
     ErrorSpike,
     DbSaturation,
@@ -138,8 +139,9 @@ impl FaultPreset {
 /// Other presets share the span from 40% to 90% of the run in equal,
 /// consecutive windows, in the order given, so each has a clean baseline
 /// before and a recovery after. `release-regression` adds a release at 50%
-/// that stays slow to the end; with it, the other presets share 10% to 45%
-/// instead, so no window overlaps the release.
+/// that stays slow to the end (or uses the configured release of the same
+/// version, at its own offset); with it, the other presets share 10% to 45%
+/// instead, so no window overlaps a release at 50%.
 pub fn apply_presets(config: &mut Config, presets: &[FaultPreset]) {
     let total = (config.duration_ns() as u128 / NS_PER_SECOND) as u64;
     let others: Vec<_> =
@@ -164,12 +166,17 @@ pub fn apply_presets(config: &mut Config, presets: &[FaultPreset]) {
         })
         .collect();
     if release {
-        let at_s = total / 2;
         let version = next_version(&config.service_version);
-        if !config.releases.iter().any(|release| release.version == version) {
-            config.releases.push(Release { at_s, version: version.clone() });
-            config.releases.sort_by_key(|release| release.at_s);
-        }
+        // A configured release of the same version keeps its own offset, and
+        // the regression starts there, so the label matches the release.
+        let at_s = match config.releases.iter().find(|release| release.version == version) {
+            Some(existing) => existing.at_s,
+            None => {
+                config.releases.push(Release { at_s: total / 2, version: version.clone() });
+                config.releases.sort_by_key(|release| release.at_s);
+                total / 2
+            }
+        };
         faults.push(Fault {
             kind: FaultKind::LatencyRegression,
             start_s: at_s,

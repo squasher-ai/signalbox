@@ -176,3 +176,102 @@ fn header_errors_never_echo_values() {
     }
     assert_eq!(parse_headers(" a=1 ,, b=x%3Dy ").unwrap().len(), 2);
 }
+
+/// Serve every connection with one fixed raw HTTP response and count them.
+async fn fixed_server(response: Vec<u8>) -> (String, Arc<Mutex<usize>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    let hits = Arc::new(Mutex::new(0));
+    let counter = hits.clone();
+    tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            *counter.lock().unwrap() += 1;
+            let response = response.clone();
+            tokio::spawn(async move {
+                let mut buffer = Vec::new();
+                let mut chunk = [0u8; 8192];
+                while !buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+                    match stream.read(&mut chunk).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+                    }
+                }
+                let _ = stream.write_all(&response).await;
+                let _ = stream.shutdown().await;
+            });
+        }
+    });
+    (address, hits)
+}
+
+async fn send_once(address: &str) -> Result<(), crate::error::Error> {
+    Sender::new(address, Default::default())
+        .unwrap()
+        .send(Signal::Traces, crate::send::gzip(b"").unwrap(), crate::config::Format::Json)
+        .await
+}
+
+#[tokio::test]
+async fn oversized_success_bodies_are_rejected_without_buffering() {
+    let large = crate::send::MAX_RESPONSE_BYTES + 1;
+    let declared = format!(
+        "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        16 * 1024 * 1024
+    );
+    let (address, _) = fixed_server(declared.into_bytes()).await;
+    let error = send_once(&address).await.unwrap_err();
+    assert_eq!(error.code, "send_failed");
+    assert!(error.message.contains("larger than"));
+
+    let mut streamed = b"HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n".to_vec();
+    streamed.resize(streamed.len() + large, b'x');
+    let (address, _) = fixed_server(streamed).await;
+    assert!(send_once(&address).await.unwrap_err().message.contains("larger than"));
+
+    let partial = br#"{"partialSuccess":{"rejectedSpans":"3"}}"#;
+    let mut small =
+        format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\n\r\n", partial.len()).into_bytes();
+    small.extend_from_slice(partial);
+    let (address, _) = fixed_server(small).await;
+    let sender = Sender::new(&address, Default::default()).unwrap();
+    sender
+        .send(Signal::Traces, crate::send::gzip(b"").unwrap(), crate::config::Format::Json)
+        .await
+        .unwrap();
+    assert_eq!(sender.summary().rejected_spans, 3);
+}
+
+const PROXY_CHILD: &str = "SIGNALBOX_TEST_PROXY_CHILD";
+
+/// Runs only in the child process started by `send_ignores_proxy_environment`,
+/// which sets the proxy variables for this process alone.
+#[tokio::test]
+#[ignore = "started by send_ignores_proxy_environment"]
+async fn proxy_environment_child() {
+    let Ok(target) = std::env::var(PROXY_CHILD) else { return };
+    send_once(&target).await.unwrap();
+}
+
+#[tokio::test]
+async fn send_ignores_proxy_environment() {
+    let (proxy, proxy_hits) =
+        fixed_server(b"HTTP/1.1 403 Forbidden\r\ncontent-length: 0\r\n\r\n".to_vec()).await;
+    let (target, received) = mock_collector(0).await;
+    let status = tokio::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "send_tests::proxy_environment_child", "--ignored", "--quiet"])
+        .env(PROXY_CHILD, &target)
+        .env_remove("NO_PROXY")
+        .env_remove("no_proxy")
+        .env("HTTP_PROXY", &proxy)
+        .env("http_proxy", &proxy)
+        .env("HTTPS_PROXY", &proxy)
+        .env("ALL_PROXY", &proxy)
+        .stdout(std::process::Stdio::null())
+        .status()
+        .await
+        .unwrap();
+    assert!(status.success(), "the child send failed");
+    assert_eq!(*proxy_hits.lock().unwrap(), 0, "the request went through the proxy");
+    assert_eq!(received.lock().unwrap().len(), 1);
+}

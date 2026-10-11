@@ -83,6 +83,11 @@ pub fn generate(config: &Config, start: u64, end: u64) -> ExportMetricsServiceRe
             Preset::Agent | Preset::Rag => {
                 let points = groups.get(Role::Primary, record.version);
                 let mut attributes = record.inference_attributes();
+                // A request that failed after the model call (error_spike)
+                // still records its error on the operation's points.
+                if record.failed && !record.work_failed {
+                    attributes.push(text(attr::ERROR_TYPE, record.error_type));
+                }
                 points.histogram(
                     0,
                     point(attributes.clone(), seconds(record.work_duration()), DURATION_BOUNDS),
