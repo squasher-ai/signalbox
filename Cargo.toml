@@ -27,7 +27,7 @@ aws-sdk-s3 = "1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 indicatif = "0.18"
-opentelemetry-proto = { version = "0.31", default-features = false, features = [
+opentelemetry-proto = { version = "0.33", default-features = false, features = [
   "gen-tonic-messages", "trace", "logs", "metrics", "with-serde",
 ] }
 prost = "0.14"
