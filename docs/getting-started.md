@@ -25,9 +25,24 @@ Start with a small JSON fixture while checking the output shape:
 
 The command prints one summary JSON value on stdout. The progress bar, when enabled, is on stderr. This lets a caller capture stdout as a value without parsing terminal output.
 
-## Replay through a Collector
+## Send to a Collector
 
-Use a Collector with its OTLP HTTP receiver enabled on `127.0.0.1:4318`. Each JSON shard is one complete export request. Send it to the matching signal endpoint:
+Use a Collector with its OTLP HTTP receiver enabled on `127.0.0.1:4318`. `--send` posts each shard directly, with gzip and retries, and still writes `ground_truth.json` and `manifest.json` to `--output`:
+
+```sh
+./target/release/signalbox generate \
+  --count 600 \
+  --preset web-topology \
+  --fault release-regression \
+  --send http://127.0.0.1:4318 \
+  --output ./sent-run
+```
+
+Put authentication headers in `SIGNALBOX_OTLP_HEADERS` (for example `authorization=Bearer%20<token>`). See [faults.md](faults.md) for the labels.
+
+## Replay files through a Collector
+
+To replay a fixture that was written to disk, send each shard to the matching signal endpoint. Each JSON shard is one complete export request:
 
 ```sh
 for signal in traces logs metrics; do

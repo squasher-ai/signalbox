@@ -1,4 +1,5 @@
 use crate::error::Error;
+pub use crate::faults::{Fault, Release};
 use clap::ValueEnum;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,9 @@ pub enum Preset {
     Agent,
     Rag,
     Web,
+    /// Gateway and API services with database and cache clients.
+    #[serde(rename = "web-topology")]
+    WebTopology,
 }
 
 impl Preset {
@@ -39,14 +43,20 @@ impl Preset {
             Self::Agent => 3,
             Self::Rag => 4,
             Self::Web => 2,
+            Self::WebTopology => 5,
         }
     }
     pub fn points_per_record(self) -> u64 {
         match self {
             Self::Agent | Self::Rag => 5,
             Self::Web => 2,
+            Self::WebTopology => 3,
         }
     }
+    pub fn is_genai(self) -> bool {
+        matches!(self, Self::Agent | Self::Rag)
+    }
+    pub const ALL: [Self; 4] = [Self::Agent, Self::Rag, Self::Web, Self::WebTopology];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ValueEnum)]
@@ -104,6 +114,20 @@ pub struct Config {
     #[schemars(length(min = 1))]
     pub region: String,
     pub progress: Progress,
+    /// `service.version` before the first release; default 1.0.0.
+    #[schemars(length(min = 1, max = 256))]
+    pub service_version: String,
+    /// Versions that replace `service_version` at offsets from `start_ns`.
+    pub releases: Vec<Release>,
+    /// Time-bounded anomalies. Each one is labeled in `ground_truth.json`.
+    pub faults: Vec<Fault>,
+    /// Identity salt for trace, span, and conversation IDs. Values, timing,
+    /// and faults depend only on the seed. Default: derived from the seed.
+    #[schemars(length(min = 1, max = 256))]
+    pub run_id: Option<String>,
+    /// OTLP/HTTP base URL. When set, shards are sent to `{send}/v1/{signal}`
+    /// instead of being written; manifest and ground truth are still written.
+    pub send: Option<String>,
 }
 
 impl Default for Config {
@@ -124,6 +148,11 @@ impl Default for Config {
             endpoint: None,
             region: "us-east-1".into(),
             progress: Progress::Auto,
+            service_version: "1.0.0".into(),
+            releases: Vec::new(),
+            faults: Vec::new(),
+            run_id: None,
+            send: None,
         }
     }
 }
@@ -162,14 +191,19 @@ impl Config {
         {
             return Err(invalid("count and timestamps exceed the supported 64-bit range"));
         }
-        if self.service_name.is_empty()
-            || self.service_name.len() > 256
-            || self.service_name.chars().any(char::is_control)
-        {
-            return Err(invalid(
-                "service_name must contain 1..=256 characters and no control characters",
-            ));
+        for (name, value) in [
+            ("service_name", Some(&self.service_name)),
+            ("service_version", Some(&self.service_version)),
+            ("run_id", self.run_id.as_ref()),
+        ] {
+            if value.is_some_and(|value| !valid_label(value)) {
+                return Err(Error::new(
+                    "invalid_config",
+                    format!("{name} must contain 1..=256 characters and no control characters"),
+                ));
+            }
         }
+        crate::faults::validate(self)?;
         if self.output.is_empty()
             || self.output.chars().any(char::is_control)
             || self.region.is_empty()
@@ -196,10 +230,22 @@ impl Config {
                 return Err(invalid("endpoint requires an s3:// output"));
             }
         }
+        if let Some(send) = &self.send {
+            crate::send::validate_base(send)?;
+        }
         Ok(())
+    }
+
+    /// Run duration in nanoseconds: the end of the last scenario interval.
+    pub fn duration_ns(&self) -> u64 {
+        self.count.saturating_mul(self.interval_ns)
     }
 
     pub fn shards(&self) -> u64 {
         self.count.div_ceil(self.batch_size as u64)
     }
+}
+
+pub fn valid_label(value: &str) -> bool {
+    !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
 }

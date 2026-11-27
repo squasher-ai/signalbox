@@ -19,6 +19,10 @@ Call `generate --dry-run` first. It validates the complete configuration, report
 
 Set an explicit `--seed`, `--batch-size`, `--jobs`, and `--start-ns` in automation. A retry must use a new output target because successful files are create-only. Treat a run as complete only when `manifest.json` exists. The same effective config and seed produce identical bytes even if `--jobs` changes.
 
+## Labeled evaluation runs
+
+For detection or diagnosis evals, generate with `--fault` and score against `ground_truth.json`. Use `fault_windows` in the dry-run plan to check where faults land before generating. Use a different `--run-id` for each repetition so trace IDs never collide in a shared backend; values and labels stay the same. With `--send`, the summary contains a `send` object (requests, retries, bytes, rejections). Header values are never included.
+
 ## Minimal workflow
 
 1. Read `schema` and `presets` to select a supported configuration.

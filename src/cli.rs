@@ -1,6 +1,7 @@
 use crate::{
-    config::{Config, Format, Preset, Progress, Signal},
+    config::{Config, Format, Preset, Progress, Release, Signal},
     error::Error,
+    faults::FaultPreset,
 };
 use clap::{Args, Parser, Subcommand};
 use clap_complete::Shell;
@@ -64,7 +65,7 @@ pub struct Overrides {
     /// Deterministic seed; default 42.
     #[arg(long, value_name = "N")]
     pub seed: Option<u64>,
-    /// Scenario: agent (3 spans), rag (4 spans), web (2 spans).
+    /// Scenario: agent (3 spans), rag (4 spans), web (2 spans), web-topology (5 spans, 2 services).
     #[arg(long, value_enum, value_name = "PRESET")]
     pub preset: Option<Preset>,
     /// Comma-separated signals; default traces,logs,metrics.
@@ -97,6 +98,28 @@ pub struct Overrides {
     /// stderr progress bar: auto (TTY only), always, never.
     #[arg(long, value_enum, value_name = "MODE")]
     pub progress: Option<Progress>,
+    /// Resource service.version before the first release; default 1.0.0.
+    #[arg(long, value_name = "VERSION")]
+    pub service_version: Option<String>,
+    /// Release schedule as VERSION@SECONDS (offset from start), repeatable or comma-separated. Replaces config releases.
+    #[arg(long = "release", value_delimiter = ',', value_name = "VERSION@SECONDS", value_parser = parse_release)]
+    pub releases: Option<Vec<Release>>,
+    /// Named fault scenarios, comma-separated; windows fall between 40% and 90% of the run. Replaces config faults.
+    #[arg(long = "fault", value_enum, value_delimiter = ',', value_name = "FAULTS")]
+    pub faults: Option<Vec<FaultPreset>>,
+    /// Identity salt for trace, span, and conversation IDs; default derived from the seed.
+    #[arg(long, value_name = "ID")]
+    pub run_id: Option<String>,
+    /// Send shards to this OTLP/HTTP base URL (POST {URL}/v1/{signal}) instead of writing them. Headers come from SIGNALBOX_OTLP_HEADERS.
+    #[arg(long, value_name = "URL")]
+    pub send: Option<String>,
+}
+
+fn parse_release(value: &str) -> Result<Release, String> {
+    let (version, at_s) =
+        value.rsplit_once('@').ok_or("expected VERSION@SECONDS, for example 1.1.0@600")?;
+    let at_s = at_s.parse().map_err(|_| "SECONDS must be a non-negative integer".to_owned())?;
+    Ok(Release { at_s, version: version.to_owned() })
 }
 
 impl Generate {
@@ -151,10 +174,21 @@ impl Generate {
             interval_ns,
             error_rate,
             region,
-            progress
+            progress,
+            service_version,
+            releases
         );
         if let Some(endpoint) = self.options.endpoint {
             config.endpoint = Some(endpoint);
+        }
+        if let Some(run_id) = self.options.run_id {
+            config.run_id = Some(run_id);
+        }
+        if let Some(send) = self.options.send {
+            config.send = Some(send);
+        }
+        if let Some(presets) = self.options.faults {
+            crate::faults::apply_presets(&mut config, &presets);
         }
         config.validate()?;
         crate::sink::Sink::validate_output(&config.output)?;

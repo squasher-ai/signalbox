@@ -230,6 +230,13 @@ fn schema_advertises_the_same_ranges_as_runtime_validation() {
     assert_eq!(properties["interval_ns"]["minimum"], 1_000_000_000_u64);
     assert_eq!(properties["error_rate"]["maximum"], 100);
     assert_eq!(properties["signals"]["minItems"], 1);
+    let fault = &schema["$defs"]["Fault"];
+    assert_eq!(fault["additionalProperties"], false);
+    assert_eq!(fault["properties"]["rate"]["minimum"], 1);
+    assert_eq!(schema["$defs"]["Release"]["additionalProperties"], false);
+    for field in ["service_version", "releases", "faults", "run_id", "send"] {
+        assert!(properties[field].is_object(), "schema is missing {field}");
+    }
 }
 
 #[test]
